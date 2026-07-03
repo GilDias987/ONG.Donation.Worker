@@ -1,0 +1,108 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ong-donation-worker-config
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+    app.kubernetes.io/name: ong-donation-worker
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/part-of: ong-donation-platform
+    app.kubernetes.io/managed-by: terraform
+data:
+  # Application settings
+  DOTNET_ENVIRONMENT: "Production"
+  LOG_LEVEL: "Information"
+  
+  # Database Configuration
+  DATABASE_TIMEOUT: "30"
+  DATABASE_POOL_SIZE: "10"
+  
+  # RabbitMQ Configuration
+  RABBITMQ_EXCHANGE_NAME: "donation.events"
+  RABBITMQ_QUEUE_NAME: "donation.payment"
+  RABBITMQ_HOST: "ong-donation-rabbitmq.ong-donation.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_VIRTUAL_HOST: "/"
+  RABBITMQ_CONNECTION_TIMEOUT: "30"
+  RABBITMQ_PREFETCH_COUNT: "5"
+  RABBITMQ_AUTO_ACK: "false"
+  
+  # Worker Configuration
+  WORKER_THREAD_COUNT: "4"
+  WORKER_BATCH_SIZE: "10"
+  WORKER_BATCH_TIMEOUT_MS: "5000"
+  WORKER_RETRY_COUNT: "3"
+  WORKER_RETRY_DELAY_MS: "1000"
+  WORKER_MAX_CONCURRENT_MESSAGES: "10"
+  
+  # Processing Configuration
+  PAYMENT_PROCESSOR_TIMEOUT_SECONDS: "60"
+  PAYMENT_PROCESSOR_RETRY_ATTEMPTS: "3"
+  DEAD_LETTER_QUEUE_ENABLED: "true"
+  
+  # Loki Configuration (Logging)
+  LOKI_ENABLED: "true"
+  LOKI_URL: "http://loki.monitoring.svc.cluster.local:3100"
+  LOKI_JOB_NAME: "ong-donation-worker"
+  
+  # Application Insights
+  APPLICATION_INSIGHTS_ENABLED: "true"
+  APPLICATION_INSIGHTS_SAMPLING_RATE: "1.0"
+  
+  # Health Check Configuration
+  HEALTH_CHECK_ENABLED: "true"
+  HEALTH_CHECK_INTERVAL_SECONDS: "30"
+  STARTUP_CHECK_TIMEOUT_SECONDS: "120"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ong-donation-worker-logging-config
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+    component: logging
+data:
+  appsettings.json: |
+    {
+      "Logging": {
+        "LogLevel": {
+          "Default": "Information",
+          "Microsoft.Hosting.Lifetime": "Information",
+          "RabbitMQ": "Information",
+          "EntityFramework": "Warning"
+        },
+        "Console": {
+          "IncludeScopes": true,
+          "TimestampFormat": "yyyy-MM-dd HH:mm:ss.fff zzz"
+        }
+      }
+    }
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ong-donation-worker-scripts
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+    component: scripts
+data:
+  healthcheck.sh: |
+    #!/bin/bash
+    set -e
+    
+    # Check if application is responding
+    response=$(wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health 2>&1 || echo "failed")
+    
+    if [[ $response == "failed" ]]; then
+      echo "Health check failed"
+      exit 1
+    fi
+    
+    echo "Health check passed"
+    exit 0
