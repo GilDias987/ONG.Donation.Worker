@@ -1,0 +1,64 @@
+﻿## Build results
+bin/
+obj/
+out/
+publish/
+
+## User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider / JetBrains
+.idea/
+*.DotSettings.user
+
+## Visual Studio Code
+.vscode/
+
+## Visual Studio
+.vs/
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+## Dotnet tools
+.toolstargets/
+.dotnet/
+tools/
+
+## Logs
+*.log
+
+## Test results
+TestResults/
+[Tt]est[Rr]esult*/
+coverage/
+coverage.*.json
+
+## EF Core
+Migrations/*Designer.cs
+Migrations/*.db
+Migrations/*.sql
+
+## Secrets
+secrets.json
+appsettings.*.Local.json
+appsettings.*.Development.json
+
+## OS files
+.DS_Store
+Thumbs.db
+
+## Docker (opcional)
+docker-compose.override.yml
+
+## HTTPS certs
+*.pfx

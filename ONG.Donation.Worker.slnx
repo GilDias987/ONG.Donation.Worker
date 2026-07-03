@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src\ONG.Donation.Worker.Domain\ONG.Donation.Worker.Domain.csproj" />
+  <Project Path="src\ONG.Donation.Worker.Infrastructure\ONG.Donation.Worker.Infrastructure.csproj" />
+  <Project Path="src\ONG.Donation.Worker\ONG.Donation.Worker.csproj" />
+</Solution>
