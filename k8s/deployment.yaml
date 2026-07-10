@@ -46,7 +46,7 @@ spec:
       
       containers:
       - name: ong-donation-worker
-        image: {ACR_LOGIN_SERVER}/ong-donation-worker:latest
+        image: ongdonationacrp.azurecr.io/ong-donation-worker:latest
         imagePullPolicy: Always
         
         # Container security context
@@ -128,9 +128,6 @@ spec:
         
         # Volume mounts
         volumeMounts:
-        - name: keyvault-secrets
-          mountPath: /mnt/secrets-store
-          readOnly: true
         - name: temp
           mountPath: /tmp
         - name: aspnet-temp
@@ -165,12 +162,7 @@ spec:
       
       # Volumes
       volumes:
-      - name: keyvault-secrets
-        csi:
-          driver: secrets-store.csi.k8s.io
-          readOnly: true
-          volumeAttributes:
-            secretProviderClass: ong-donation-worker-keyvault-secrets
+
       - name: temp
         emptyDir: {}
       - name: aspnet-temp

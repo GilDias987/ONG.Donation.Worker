@@ -83,7 +83,7 @@ steps:
       fi
 
       if [ -f k8s/secretproviderclass.yaml ]; then
-        kubectl apply -n $(namespace) -f k8s/secretproviderclass.yaml
+        kubectl apply -n $(namespace) -f k8s/secretproviderclass.yaml || echo "⚠ SecretProviderClass skipped (CSI driver may not be installed)"
       fi
 
       # 2) Deployment
