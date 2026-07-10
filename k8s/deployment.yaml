@@ -61,6 +61,9 @@ spec:
         envFrom:
         - configMapRef:
             name: ong-donation-worker-config
+        - secretRef:
+            name: ong-donation-worker-secrets
+            optional: true
         
         # Additional environment variables
         env:
@@ -128,6 +131,9 @@ spec:
         
         # Volume mounts
         volumeMounts:
+        - name: keyvault-secrets
+          mountPath: /mnt/secrets-store
+          readOnly: true
         - name: temp
           mountPath: /tmp
         - name: aspnet-temp
@@ -162,7 +168,12 @@ spec:
       
       # Volumes
       volumes:
-
+      - name: keyvault-secrets
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: ong-donation-worker-keyvault-secrets
       - name: temp
         emptyDir: {}
       - name: aspnet-temp

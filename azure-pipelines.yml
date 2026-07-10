@@ -20,7 +20,8 @@ variables:
   acrName: 'ongdonationacrp'
   imageRepository: 'ong-donation-worker'
   containerName: 'ong-donation-worker'
-  containerPort: '80'
+  containerPort: '8080'
+  keyvaultName: 'ong-donation-kv-p-v4'
 
   imageTag: '$(Build.SourceVersion)'
 
@@ -77,16 +78,26 @@ steps:
       # 0) Namespace
       kubectl get ns $(namespace) || kubectl apply -f k8s/namespace.yaml
 
-      # 1) ConfigMap + SecretProviderClass (Key Vault CSI)
+      # 1) ConfigMap
       if [ -f k8s/configmap.yaml ]; then
         kubectl apply -n $(namespace) -f k8s/configmap.yaml
       fi
 
+      # 2) SecretProviderClass (Key Vault CSI) - resolve placeholders
       if [ -f k8s/secretproviderclass.yaml ]; then
-        kubectl apply -n $(namespace) -f k8s/secretproviderclass.yaml || echo "⚠ SecretProviderClass skipped (CSI driver may not be installed)"
+        TENANT_ID=$(az account show --query tenantId -o tsv)
+        CLIENT_ID=$(az aks show -g $(aksResourceGroup) -n $(aksClusterName) \
+          --query "addonProfiles.azureKeyvaultSecretsProvider.identity.clientId" -o tsv)
+
+        echo "Tenant ID: $TENANT_ID"
+        echo "Client ID (KV CSI): $CLIENT_ID"
+
+        sed -e "s|\${WORKER_CLIENT_ID}|$CLIENT_ID|g" \
+            -e "s|\${TENANT_ID}|$TENANT_ID|g" \
+            k8s/secretproviderclass.yaml | kubectl apply -n $(namespace) -f -
       fi
 
-      # 2) Deployment
+      # 3) Deployment
       kubectl apply -n $(namespace) -f k8s/deployment.yaml
 
       # 3) Troca a imagem com TAG IMUTÁVEL
