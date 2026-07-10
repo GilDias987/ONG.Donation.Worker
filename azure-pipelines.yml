@@ -3,7 +3,6 @@ trigger:
     include:
       - master
       - main
-      - feature/doacao
   paths:
     include:
       - src/**
@@ -13,66 +12,135 @@ trigger:
 pool: 'Azure Pipelines'
 
 variables:
-  dockerRegistryServiceConnection: 'acr-ong-donation-worker'
+  azureServiceConnection: 'az-sv-conn'
+  aksResourceGroup: 'rg-ong-donation-prod'
+  aksClusterName: 'ong-donation-aks-p'
+  namespace: 'ong-donation-worker'
+
+  acrName: 'ongdonationacrp'
   imageRepository: 'ong-donation-worker'
-  containerRegistry: 'ongdonationacrp.azurecr.io'
-  dockerfilePath: 'src/ONG.Donation.Worker/Dockerfile'
-  tag: '$(Build.BuildId)'
-  vmImageName: 'ubuntu-latest'
+  containerName: 'ong-donation-worker'
+  containerPort: '80'
 
-stages:
-- stage: Build
-  displayName: 'Build & Push Docker Image'
-  jobs:
-  - job: Build
-    displayName: 'Build Docker Image'
-    pool:
-      vmImage: $(vmImageName)
-    steps:
-    - checkout: self
+  imageTag: '$(Build.SourceVersion)'
 
-    - task: Docker@2
-      displayName: 'Build Docker Image'
-      inputs:
-        command: 'build'
-        Dockerfile: $(dockerfilePath)
-        tags: |
-          $(containerRegistry)/$(imageRepository):$(tag)
-          $(containerRegistry)/$(imageRepository):latest
-        arguments: '--build-arg BUILD_NUMBER=$(Build.BuildId)'
+steps:
+- checkout: self
 
-    - task: Docker@2
-      displayName: 'Push to ACR'
-      inputs:
-        command: 'push'
-        containerRegistry: $(dockerRegistryServiceConnection)
-        repository: $(imageRepository)
-        tags: |
-          $(tag)
-          latest
+# 1) Build/Test (.NET)
+- task: UseDotNet@2
+  displayName: 'Use .NET SDK'
+  inputs:
+    packageType: 'sdk'
+    version: '9.x'
 
-- stage: Deploy
-  displayName: 'Deploy to Kubernetes'
-  dependsOn: Build
-  condition: succeeded()
-  jobs:
-  - job: Deploy
-    displayName: 'Deploy ONG.Donation.Worker to AKS'
-    steps:
-    - checkout: self
+- script: |
+    set -e
+    dotnet restore ONG.Donation.Worker.slnx
+    dotnet build ONG.Donation.Worker.slnx --configuration Release --no-restore
+    dotnet test ONG.Donation.Worker.slnx --configuration Release --no-build
+  displayName: 'Build & Test'
 
-    - task: KubernetesManifest@0
-      displayName: 'Deploy to Kubernetes'
-      inputs:
-        action: 'deploy'
-        kubernetesServiceConnection: 'aks-ong-donation-prod'
-        namespace: 'ong-donation-worker'
-        manifests: |
-          $(Build.SourcesDirectory)/k8s/namespace.yaml
-          $(Build.SourcesDirectory)/k8s/configmap.yaml
-          $(Build.SourcesDirectory)/k8s/secretproviderclass.yaml
-          $(Build.SourcesDirectory)/k8s/deployment.yaml
-        imagePullSecrets: |
-          acr-secret
-        containers: |
-          $(containerRegistry)/$(imageRepository):$(tag)
+# 2) Build + Push imagem
+- task: AzureCLI@2
+  displayName: 'Docker build & push (ACR)'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -e
+
+      az acr login --name $(acrName)
+
+      IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+      echo "Building image: $IMAGE"
+
+      docker build -t "$IMAGE" -f src/ONG.Donation.Worker/Dockerfile .
+      docker push "$IMAGE"
+
+# 3) Deploy no AKS + auditoria
+- task: AzureCLI@2
+  displayName: 'Deploy to AKS (Rolling Update)'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -e
+
+      az aks get-credentials \
+        --resource-group $(aksResourceGroup) \
+        --name $(aksClusterName) \
+        --overwrite-existing
+
+      # 0) Namespace
+      kubectl get ns $(namespace) || kubectl apply -f k8s/namespace.yaml
+
+      # 1) ConfigMap + SecretProviderClass (Key Vault CSI)
+      if [ -f k8s/configmap.yaml ]; then
+        kubectl apply -n $(namespace) -f k8s/configmap.yaml
+      fi
+
+      if [ -f k8s/secretproviderclass.yaml ]; then
+        kubectl apply -n $(namespace) -f k8s/secretproviderclass.yaml
+      fi
+
+      # 2) Deployment
+      kubectl apply -n $(namespace) -f k8s/deployment.yaml
+
+      # 3) Troca a imagem com TAG IMUTÁVEL
+      IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+      echo "Setting image: $IMAGE"
+      kubectl set image -n $(namespace) deployment/$(containerName) \
+        $(containerName)="$IMAGE"
+
+      # 4) Rollout + auditoria
+      ROLL_OUT_TIMEOUT="600s"
+      echo "== Rollout status (timeout=$ROLL_OUT_TIMEOUT) =="
+      kubectl rollout status -n $(namespace) deployment/$(containerName) --timeout=$ROLL_OUT_TIMEOUT || {
+        echo ""
+        echo "============================"
+        echo "❌ ROLLOUT FAIL"
+        echo "Coletando auditoria/diagnóstico..."
+        echo "============================"
+
+        echo ""
+        echo "== Deploy describe =="
+        kubectl describe deployment/$(containerName) -n $(namespace) || true
+
+        echo ""
+        echo "== ReplicaSets =="
+        kubectl get rs -n $(namespace) -l app=$(containerName) -o wide || true
+
+        echo ""
+        echo "== Pods (wide) =="
+        kubectl get pods -n $(namespace) -l app=$(containerName) -o wide || true
+
+        echo ""
+        echo "== Events (últimos 60) =="
+        kubectl get events -n $(namespace) --sort-by=.metadata.creationTimestamp | tail -n 60 || true
+
+        echo ""
+        echo "== Pod não-ready (tentando pegar 1) =="
+        BADPOD=$(kubectl get pods -n $(namespace) -l app=$(containerName) --no-headers 2>/dev/null | awk '$2 != "1/1" && $2 != "2/2" {print $1; exit}')
+        if [ -n "$BADPOD" ]; then
+          echo "Pod problema: $BADPOD"
+          echo ""
+          echo "== Describe Pod ($BADPOD) =="
+          kubectl describe pod -n $(namespace) "$BADPOD" || true
+          echo ""
+          echo "== Logs atuais ($BADPOD) =="
+          kubectl logs -n $(namespace) "$BADPOD" --tail=200 || true
+          echo ""
+          echo "== Logs anteriores (se restart) ($BADPOD) =="
+          kubectl logs -n $(namespace) "$BADPOD" -p --tail=200 || true
+        else
+          echo "Nenhum pod 'não-ready' identificado."
+        fi
+
+        exit 1
+      }
+
+      echo "✅ Rollout concluído."
+      kubectl get pods -n $(namespace) -l app=$(containerName) -o wide
