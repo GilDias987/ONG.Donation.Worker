@@ -29,7 +29,7 @@ spec:
       labels:
         app: ong-donation-worker
         component: worker
-        aadpodidbinding: ong-donation-worker-selector
+        azure.workload.identity/use: "true"
         version: "1.0.0"
       annotations:
         prometheus.io/scrape: "true"
