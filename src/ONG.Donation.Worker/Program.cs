@@ -25,6 +25,13 @@ Log.Logger = new LoggerConfiguration()
         })
     .CreateLogger();
 
+var startupConnectionStrings = config.GetSection("ConnectionStrings")
+    .GetChildren()
+    .Where(child => !string.IsNullOrWhiteSpace(child.Value))
+    .ToDictionary(child => child.Key, child => child.Value);
+
+Log.Information("Startup connection strings: {@ConnectionStrings}", startupConnectionStrings);
+
 var builder = Host.CreateDefaultBuilder(args)
     .UseSerilog()
     .ConfigureServices((context, services) =>

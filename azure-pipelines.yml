@@ -75,6 +75,14 @@ steps:
         --name $(aksClusterName) \
         --overwrite-existing
 
+      IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+      echo "== Deployment diagnostics =="
+      echo "Namespace: $(namespace)"
+      echo "Container: $(containerName)"
+      echo "Image: $IMAGE"
+      kubectl get configmap -n $(namespace) ong-donation-config >/dev/null 2>&1 && echo "ConfigMap present: ong-donation-config" || echo "ConfigMap missing: ong-donation-config"
+      kubectl get secret -n $(namespace) ong-donation-secrets >/dev/null 2>&1 && echo "Secret present: ong-donation-secrets" || echo "Secret missing: ong-donation-secrets"
+
       # 0) Namespace
       kubectl get ns $(namespace) || kubectl apply -f k8s/namespace.yaml
 
