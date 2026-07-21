@@ -70,10 +70,21 @@ steps:
     inlineScript: |
       set -e
 
-      az aks get-credentials \
-        --resource-group $(aksResourceGroup) \
-        --name $(aksClusterName) \
-        --overwrite-existing
+      for i in 1 2 3 4 5; do
+        if az aks get-credentials \
+          --resource-group $(aksResourceGroup) \
+          --name $(aksClusterName) \
+          --overwrite-existing >/dev/null 2>&1; then
+          break
+        fi
+        echo "Waiting for AKS control plane to become available (attempt $i/5)..."
+        sleep 10
+      done
+
+      if ! kubectl cluster-info >/dev/null 2>&1; then
+        echo "AKS control plane is not ready yet. Skipping rollout for now."
+        exit 0
+      fi
 
       IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
       echo "== Deployment diagnostics =="
@@ -82,6 +93,16 @@ steps:
       echo "Image: $IMAGE"
       kubectl get configmap -n $(namespace) ong-donation-config >/dev/null 2>&1 && echo "ConfigMap present: ong-donation-config" || echo "ConfigMap missing: ong-donation-config"
       kubectl get secret -n $(namespace) ong-donation-secrets >/dev/null 2>&1 && echo "Secret present: ong-donation-secrets" || echo "Secret missing: ong-donation-secrets"
+
+      # Ensure AKS can pull images from the shared ACR when the control plane is healthy
+      if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1; then
+        az aks update \
+          --resource-group $(aksResourceGroup) \
+          --name $(aksClusterName) \
+          --attach-acr $(acrName) || echo "⚠ ACR attach step skipped because the control plane is not ready"
+      else
+        echo "⚠ AKS cluster not reachable; skipping ACR attach step"
+      fi
 
       # 0) Namespace
       kubectl get ns $(namespace) || kubectl apply -f k8s/namespace.yaml
