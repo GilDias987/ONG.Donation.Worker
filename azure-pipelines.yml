@@ -83,7 +83,8 @@ steps:
 
       if [ "$AKS_READY" -ne 1 ]; then
         echo "AKS control plane is still unavailable. Trying one reconciliation pass..."
-        az aks update --resource-group $(aksResourceGroup) --name $(aksClusterName) --attach-acr $(acrName) || true
+        az aks update --resource-group $(aksResourceGroup) --name $(aksClusterName) --attach-acr $(acrName) >/tmp/aks-attach.log 2>&1 || true
+        cat /tmp/aks-attach.log || true
         for i in 1 2 3 4 5; do
           if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
              az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
@@ -113,7 +114,7 @@ steps:
         az aks update \
           --resource-group $(aksResourceGroup) \
           --name $(aksClusterName) \
-          --attach-acr $(acrName) || echo "⚠ ACR attach step skipped because the control plane is not ready"
+          --attach-acr $(acrName) >/tmp/aks-attach-final.log 2>&1 || echo "⚠ ACR attach step skipped or failed: $(cat /tmp/aks-attach-final.log)"
       else
         echo "⚠ AKS cluster not reachable; skipping ACR attach step"
       fi
