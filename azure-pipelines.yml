@@ -70,20 +70,34 @@ steps:
     inlineScript: |
       set -e
 
-      for i in 1 2 3 4 5; do
-        if az aks get-credentials \
-          --resource-group $(aksResourceGroup) \
-          --name $(aksClusterName) \
-          --overwrite-existing >/dev/null 2>&1; then
+      AKS_READY=0
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
+           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
+          AKS_READY=1
           break
         fi
-        echo "Waiting for AKS control plane to become available (attempt $i/5)..."
-        sleep 10
+        echo "Waiting for AKS control plane to become available (attempt $i/10)..."
+        sleep 20
       done
 
-      if ! kubectl cluster-info >/dev/null 2>&1; then
-        echo "AKS control plane is not ready yet. Skipping rollout for now."
-        exit 0
+      if [ "$AKS_READY" -ne 1 ]; then
+        echo "AKS control plane is still unavailable. Trying one reconciliation pass..."
+        az aks update --resource-group $(aksResourceGroup) --name $(aksClusterName) --attach-acr $(acrName) || true
+        for i in 1 2 3 4 5; do
+          if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
+             az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
+            AKS_READY=1
+            break
+          fi
+          echo "Waiting after reconciliation (attempt $i/5)..."
+          sleep 30
+        done
+      fi
+
+      if [ "$AKS_READY" -ne 1 ]; then
+        echo "AKS control plane is still not ready. Failing deployment."
+        exit 1
       fi
 
       IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
