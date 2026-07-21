@@ -30,9 +30,7 @@ public class DonationConsumer : BackgroundService
     {
         var factory = new ConnectionFactory
         {
-            HostName = _rabbitMqOptions.HostName,
-            UserName = _rabbitMqOptions.UserName,
-            Password = _rabbitMqOptions.Password
+            Uri = new Uri(_rabbitMqOptions.ConnectionString)
         };
 
         _connection = await factory.CreateConnectionAsync(stoppingToken);

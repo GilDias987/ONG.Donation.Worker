@@ -63,10 +63,15 @@ spec:
             name: ong-donation-worker-config
         - secretRef:
             name: ong-donation-worker-secrets
-            optional: true
+            optional: false
         
         # Additional environment variables
         env:
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: ong-donation-worker-secrets
+              key: ConnectionStrings__DefaultConnection
         - name: POD_NAME
           valueFrom:
             fieldRef:
