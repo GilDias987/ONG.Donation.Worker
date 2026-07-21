@@ -85,19 +85,14 @@ steps:
         echo "AKS control plane is still unavailable. Trying one reconciliation pass..."
         az aks update --resource-group $(aksResourceGroup) --name $(aksClusterName) --attach-acr $(acrName) >/tmp/aks-attach.log 2>&1 || true
         cat /tmp/aks-attach.log || true
-        for i in 1 2 3 4 5; do
-          if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
-             az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
-            AKS_READY=1
-            break
-          fi
-          echo "Waiting after reconciliation (attempt $i/5)..."
-          sleep 30
-        done
+        if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
+           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
+          AKS_READY=1
+        fi
       fi
 
       if [ "$AKS_READY" -ne 1 ]; then
-        echo "AKS control plane is still not ready. Failing deployment."
+        echo "AKS control plane is still not reachable. Failing deployment."
         exit 1
       fi
 
