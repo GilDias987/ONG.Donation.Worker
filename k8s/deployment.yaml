@@ -46,7 +46,7 @@ spec:
       
       containers:
       - name: ong-donation-worker
-        image: ongdonationacrp.azurecr.io/ong-donation-worker:latest
+        image: __IMAGE__
         imagePullPolicy: Always
         
         # Container security context
