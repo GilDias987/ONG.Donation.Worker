@@ -1,0 +1,195 @@
+trigger:
+  branches:
+    include:
+      - master
+      - main
+  paths:
+    include:
+      - src/**
+      - k8s/**
+      - azure-pipelines.yml
+
+pool: 'Azure Pipelines'
+
+variables:
+  azureServiceConnection: 'az-sv-conn'
+  aksResourceGroup: 'rg-ong-donation-prod'
+  aksClusterName: 'ong-donation-aks-p'
+  namespace: 'ong-donation-worker'
+
+  acrName: 'ongdonationacrp'
+  imageRepository: 'ong-donation-worker'
+  containerName: 'ong-donation-worker'
+  containerPort: '8080'
+  keyvaultName: 'ong-donation-kv-p-v4'
+
+  imageTag: '$(Build.SourceVersion)'
+
+steps:
+- checkout: self
+
+# 1) Build/Test (.NET)
+- task: UseDotNet@2
+  displayName: 'Use .NET SDK'
+  inputs:
+    packageType: 'sdk'
+    version: '10.x'
+
+- script: |
+    set -e
+    dotnet restore ONG.Donation.Worker.slnx
+    dotnet build ONG.Donation.Worker.slnx --configuration Release --no-restore
+    dotnet test ONG.Donation.Worker.slnx --configuration Release --no-build
+  displayName: 'Build & Test'
+
+# 2) Build + Push imagem
+- task: AzureCLI@2
+  displayName: 'Docker build & push (ACR)'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -e
+
+      az acr login --name $(acrName)
+
+      IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+      echo "Building image: $IMAGE"
+
+      docker build -t "$IMAGE" -f src/ONG.Donation.Worker/Dockerfile .
+      docker push "$IMAGE"
+
+# 3) Deploy no AKS + auditoria
+- task: AzureCLI@2
+  displayName: 'Deploy to AKS (Rolling Update)'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: bash
+    scriptLocation: inlineScript
+    inlineScript: |
+      set -e
+
+      AKS_READY=0
+      for i in 1 2 3 4 5 6 7 8 9 10; do
+        if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
+           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
+          AKS_READY=1
+          break
+        fi
+        echo "Waiting for AKS control plane to become available (attempt $i/10)..."
+        sleep 20
+      done
+
+      if [ "$AKS_READY" -ne 1 ]; then
+        echo "AKS control plane is still unavailable. Trying one reconciliation pass..."
+        az aks update --resource-group $(aksResourceGroup) --name $(aksClusterName) --attach-acr $(acrName) >/tmp/aks-attach.log 2>&1 || true
+        cat /tmp/aks-attach.log || true
+        if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1 && \
+           az aks get-credentials --resource-group $(aksResourceGroup) --name $(aksClusterName) --overwrite-existing >/dev/null 2>&1; then
+          AKS_READY=1
+        fi
+      fi
+
+      if [ "$AKS_READY" -ne 1 ]; then
+        echo "AKS control plane is still not reachable. Failing deployment."
+        exit 1
+      fi
+
+      IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+      echo "== Deployment diagnostics =="
+      echo "Namespace: $(namespace)"
+      echo "Container: $(containerName)"
+      echo "Image: $IMAGE"
+      kubectl get configmap -n $(namespace) ong-donation-config >/dev/null 2>&1 && echo "ConfigMap present: ong-donation-config" || echo "ConfigMap missing: ong-donation-config"
+      kubectl get secret -n $(namespace) ong-donation-secrets >/dev/null 2>&1 && echo "Secret present: ong-donation-secrets" || echo "Secret missing: ong-donation-secrets"
+
+      # Ensure AKS can pull images from the shared ACR when the control plane is healthy
+      if az aks show --resource-group $(aksResourceGroup) --name $(aksClusterName) >/dev/null 2>&1; then
+        az aks update \
+          --resource-group $(aksResourceGroup) \
+          --name $(aksClusterName) \
+          --attach-acr $(acrName) >/tmp/aks-attach-final.log 2>&1 || echo "⚠ ACR attach step skipped or failed: $(cat /tmp/aks-attach-final.log)"
+      else
+        echo "⚠ AKS cluster not reachable; skipping ACR attach step"
+      fi
+
+      # 0) Namespace
+      kubectl get ns $(namespace) || kubectl apply -f k8s/namespace.yaml
+
+      # 1) ConfigMap
+      if [ -f k8s/configmap.yaml ]; then
+        kubectl apply -n $(namespace) -f k8s/configmap.yaml
+      fi
+
+      # 2) SecretProviderClass (Key Vault CSI) - resolve placeholders
+      if [ -f k8s/secretproviderclass.yaml ]; then
+        TENANT_ID=$(az account show --query tenantId -o tsv)
+        CLIENT_ID=$(az aks show -g $(aksResourceGroup) -n $(aksClusterName) \
+          --query "addonProfiles.azureKeyvaultSecretsProvider.identity.clientId" -o tsv)
+
+        echo "Tenant ID: $TENANT_ID"
+        echo "Client ID (KV CSI): $CLIENT_ID"
+
+        sed -e "s|\${WORKER_CLIENT_ID}|$CLIENT_ID|g" \
+            -e "s|\${TENANT_ID}|$TENANT_ID|g" \
+            k8s/secretproviderclass.yaml | kubectl apply -n $(namespace) -f -
+      fi
+
+      # 3) Deployment
+          IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
+
+          echo "Deploying image: $IMAGE"
+
+          sed "s|__IMAGE__|$IMAGE|g" k8s/deployment.yaml | \
+          kubectl apply -n $(namespace) -f -
+
+      # 4) Rollout + auditoria
+      ROLL_OUT_TIMEOUT="600s"
+      echo "== Rollout status (timeout=$ROLL_OUT_TIMEOUT) =="
+      kubectl rollout status -n $(namespace) deployment/$(containerName) --timeout=$ROLL_OUT_TIMEOUT || {
+        echo ""
+        echo "============================"
+        echo "❌ ROLLOUT FAIL"
+        echo "Coletando auditoria/diagnóstico..."
+        echo "============================"
+
+        echo ""
+        echo "== Deploy describe =="
+        kubectl describe deployment/$(containerName) -n $(namespace) || true
+
+        echo ""
+        echo "== ReplicaSets =="
+        kubectl get rs -n $(namespace) -l app=$(containerName) -o wide || true
+
+        echo ""
+        echo "== Pods (wide) =="
+        kubectl get pods -n $(namespace) -l app=$(containerName) -o wide || true
+
+        echo ""
+        echo "== Events (últimos 60) =="
+        kubectl get events -n $(namespace) --sort-by=.metadata.creationTimestamp | tail -n 60 || true
+
+        echo ""
+        echo "== Pod não-ready (tentando pegar 1) =="
+        BADPOD=$(kubectl get pods -n $(namespace) -l app=$(containerName) --no-headers 2>/dev/null | awk '$2 != "1/1" && $2 != "2/2" {print $1; exit}')
+        if [ -n "$BADPOD" ]; then
+          echo "Pod problema: $BADPOD"
+          echo ""
+          echo "== Describe Pod ($BADPOD) =="
+          kubectl describe pod -n $(namespace) "$BADPOD" || true
+          echo ""
+          echo "== Logs atuais ($BADPOD) =="
+          kubectl logs -n $(namespace) "$BADPOD" --tail=200 || true
+          echo ""
+          echo "== Logs anteriores (se restart) ($BADPOD) =="
+          kubectl logs -n $(namespace) "$BADPOD" -p --tail=200 || true
+        else
+          echo "Nenhum pod 'não-ready' identificado."
+        fi
+
+        exit 1
+      }
+
+      echo "✅ Rollout concluído."
+      kubectl get pods -n $(namespace) -l app=$(containerName) -o wide

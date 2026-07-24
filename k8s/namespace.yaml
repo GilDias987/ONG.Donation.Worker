@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ong-donation-worker
+  labels:
+    name: ong-donation-worker
+    app.kubernetes.io/name: ong-donation-worker
+    app.kubernetes.io/part-of: ong-donation-platform
+  annotations:
+    description: "Namespace for ONG Donation Background Worker and message processing"

@@ -1,0 +1,342 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ong-donation-worker
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+    app.kubernetes.io/name: ong-donation-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/part-of: ong-donation-platform
+    app.kubernetes.io/managed-by: terraform
+  annotations:
+    description: "ONG Donation Background Worker - Message Processing"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: ong-donation-worker
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: ong-donation-worker
+        component: worker
+        azure.workload.identity/use: "true"
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: ong-donation-worker
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: ong-donation-worker
+        image: __IMAGE__
+        imagePullPolicy: Always
+        
+        # Container security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        
+        # Environment variables from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: ong-donation-worker-config
+        - secretRef:
+            name: ong-donation-worker-secrets
+            optional: false
+        
+        # Additional environment variables
+        env:
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: ong-donation-worker-secrets
+              key: ConnectionStrings__DefaultConnection
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        
+        # Resource limits and requests
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        
+        # Liveness probe
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health || exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Readiness probe
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health/ready || exit 1
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 2
+        
+        # Startup probe
+        startupProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health/live || exit 1
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 20
+        
+        # Volume mounts
+        volumeMounts:
+        - name: keyvault-secrets
+          mountPath: /mnt/secrets-store
+          readOnly: true
+        - name: temp
+          mountPath: /tmp
+        - name: aspnet-temp
+          mountPath: /tmp/aspnet
+        
+        # Lifecycle hooks
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sh
+              - -c
+              - |
+                echo "Graceful shutdown starting..."
+                sleep 10
+                echo "Stopping worker..."
+                kill -TERM 1
+      
+      # Pod disruption budget
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - ong-donation-worker
+              topologyKey: kubernetes.io/hostname
+      
+      # Volumes
+      volumes:
+      - name: keyvault-secrets
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: ong-donation-worker-keyvault-secrets
+      - name: temp
+        emptyDir: {}
+      - name: aspnet-temp
+        emptyDir: {}
+      
+      # DNS policy
+      dnsPolicy: ClusterFirst
+      
+      # Grace period for graceful shutdown
+      terminationGracePeriodSeconds: 30
+      
+      # Image pull secrets (if using private ACR)
+      # imagePullSecrets:
+      # - name: acr-credentials
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ong-donation-worker-pdb
+  namespace: ong-donation-worker
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: ong-donation-worker
+      component: worker
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ong-donation-worker-hpa
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+    app.kubernetes.io/component: autoscaler
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ong-donation-worker
+  
+  minReplicas: 2
+  maxReplicas: 5
+  
+  metrics:
+  # CPU metric
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+  
+  # Memory metric
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 85
+  
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min
+    
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 1
+        periodSeconds: 30
+      selectPolicy: Max
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ong-donation-worker-network-policy
+  namespace: ong-donation-worker
+  labels:
+    app: ong-donation-worker
+spec:
+  podSelector:
+    matchLabels:
+      app: ong-donation-worker
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules (limited - worker is not exposed)
+  ingress:
+  # Allow from monitoring/prometheus
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+  
+  # Egress rules
+  egress:
+  # Allow DNS
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: UDP
+      port: 53
+  
+  # Allow to RabbitMQ/Service Bus
+  - to:
+    - podSelector:
+        matchLabels:
+          app: rabbitmq
+    ports:
+    - protocol: TCP
+      port: 5672
+    - protocol: TCP
+      port: 5671
+  
+  # Allow to SQL Server (Payments database)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 1433
+  
+  # Allow to Loki
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    - podSelector:
+        matchLabels:
+          app: loki
+    ports:
+    - protocol: TCP
+      port: 3100
+  
+  # Allow external HTTPS (for Key Vault, Application Insights, etc.)
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 443
