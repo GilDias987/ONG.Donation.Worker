@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using ONG.Donation.Worker.Domain.Interfaces;
 using ONG.Donation.Worker.Infrastructure.Persistence.Context;
 using ONG.Donation.Worker.Infrastructure.Persistence.Repositories;
-using ONG.Donation.Worker.Infrastructure.RabbitMQ;
+using ONG.Donation.Worker.Infrastructure.ServiceBus;
 
 namespace ONG.Donation.Worker.Infrastructure.DependencyInjection;
 
@@ -18,17 +18,15 @@ public static class DependencyInjection
 
         services.AddScoped<PaymentRepository>();
 
-        var rabbitSection = configuration.GetSection("RabbitMQ");
-        var rabbitOptions = new RabbitMQOptions
+        var serviceBusSection = configuration.GetSection("ServiceBus");
+        var serviceBusOptions = new ServiceBusOptions
         {
-            HostName = rabbitSection["HostName"] ?? "localhost",
-            UserName = rabbitSection["UserName"] ?? "owng",
-            Password = rabbitSection["Password"] ?? "owong",
-            ExchangeName = rabbitSection["ExchangeName"] ?? "donation.events",
-            QueueName = rabbitSection["QueueName"] ?? "donation.payment"
+            ConnectionString = serviceBusSection["ConnectionString"] ?? "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true",
+            QueueName = serviceBusSection["QueueName"] ?? "donation.payment",
+            ResultQueueName = serviceBusSection["ResultQueueName"] ?? "donation.payment.result"
         };
-        services.AddSingleton(rabbitOptions);
-        services.AddSingleton<IEventPublisher, EventPublisher>();
+        services.AddSingleton(serviceBusOptions);
+        services.AddSingleton<IEventPublisher, ServiceBusEventPublisher>();
 
         return services;
     }
