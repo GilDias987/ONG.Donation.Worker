@@ -26,6 +26,14 @@ Log.Logger = new LoggerConfiguration()
         })
     .CreateLogger();
 
+var startupConnectionStrings = config.GetSection("ConnectionStrings")
+    .GetChildren()
+    .Where(child => !string.IsNullOrWhiteSpace(child.Value))
+    .ToDictionary(child => child.Key, child => child.Value);
+
+Log.Information("Startup connection strings: {@ConnectionStrings}", startupConnectionStrings);
+Log.Information("RabbitMQ connection string present: {HasRabbitMq}", !string.IsNullOrWhiteSpace(config["RabbitMQ:ConnectionString"] ?? config["RabbitMQ__ConnectionString"]));
+
 var builder = Host.CreateDefaultBuilder(args)
     .UseSerilog()
     .ConfigureServices((context, services) =>
