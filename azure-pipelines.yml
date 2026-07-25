@@ -3,6 +3,7 @@ trigger:
     include:
       - master
       - main
+      - feature/doacao
   paths:
     include:
       - src/**
@@ -12,7 +13,7 @@ trigger:
 pool: 'Azure Pipelines'
 
 variables:
-  azureServiceConnection: 'az-sv-conn'
+  azureServiceConnection: 'Azure subscription 1(f7e8b0e7-00d0-4c4f-bf95-a506ee0dae6d)'
   aksResourceGroup: 'rg-ong-donation-prod'
   aksClusterName: 'ong-donation-aks-p'
   namespace: 'ong-donation-worker'
