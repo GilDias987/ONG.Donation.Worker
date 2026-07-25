@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using ONG.Donation.Worker.Infrastructure.DependencyInjection;
 using ONG.Donation.Worker.Infrastructure.Persistence.Context;
 using ONG.Donation.Worker.Consumers;
+using ONG.Donation.Worker.Infrastructure.ServiceBus;
 using Serilog;
 using Serilog.Sinks.Grafana.Loki;
 
@@ -38,7 +39,7 @@ var builder = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>
     {
         services.AddWorkerInfrastructure(context.Configuration);
-        services.AddHostedService<DonationConsumer>();
+        services.AddHostedService<ServiceBusDonationConsumer>();
     });
 
 var host = builder.Build();
