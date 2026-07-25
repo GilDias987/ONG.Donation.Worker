@@ -67,11 +67,11 @@ spec:
         
         # Additional environment variables
         env:
-        - name: ConnectionStrings__DefaultConnection
+        - name: ConnectionStrings__WorkerConnection
           valueFrom:
             secretKeyRef:
               name: ong-donation-worker-secrets
-              key: ConnectionStrings__DefaultConnection
+              key: ConnectionStrings__WorkerConnection
         - name: POD_NAME
           valueFrom:
             fieldRef:
