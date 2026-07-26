@@ -262,11 +262,7 @@ spec:
   # Egress rules
   egress:
   # Allow DNS
-  - to:
-    - namespaceSelector: {}
-    ports:
-    - protocol: UDP
-      port: 53
+  - {}
   
   # Allow to RabbitMQ/Service Bus
   - to:
@@ -280,8 +276,6 @@ spec:
       port: 5671
   
   # Allow to SQL Server (Payments database)
-  - to:
-    - namespaceSelector: {}
     ports:
     - protocol: TCP
       port: 1433
