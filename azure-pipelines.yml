@@ -136,8 +136,13 @@ steps:
             -e "s|\${TENANT_ID}|$TENANT_ID|g" \
             k8s/secretproviderclass.yaml | kubectl apply -n $(namespace) -f -
       fi
+      # 3) NetworkPolicy
+      if [ -f k8s/networkpolicy.yaml ]; then
+        echo "Applying NetworkPolicy..."
+          kubectl apply -n $(namespace) -f k8s/networkpolicy.yaml
+          fi
 
-      # 3) Deployment
+      # 4) Deployment
           IMAGE="$(acrName).azurecr.io/$(imageRepository):$(imageTag)"
 
           echo "Deploying image: $IMAGE"
@@ -145,7 +150,7 @@ steps:
           sed "s|__IMAGE__|$IMAGE|g" k8s/deployment.yaml | \
           kubectl apply -n $(namespace) -f -
 
-      # 4) Rollout + auditoria
+      # 5) Rollout + auditoria
       ROLL_OUT_TIMEOUT="600s"
       echo "== Rollout status (timeout=$ROLL_OUT_TIMEOUT) =="
       kubectl rollout status -n $(namespace) deployment/$(containerName) --timeout=$ROLL_OUT_TIMEOUT || {
