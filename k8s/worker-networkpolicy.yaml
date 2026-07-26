@@ -1,10 +1,3 @@
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ong-donation-worker-network-policy
-  namespace: ong-donation-worker
-  labels:
-    app: ong-donation-worker
 spec:
   podSelector:
     matchLabels:
@@ -16,46 +9,15 @@ spec:
 
   ingress:
     - from:
-        - namespaceSelector:
-            matchLabels:
-              name: monitoring
-        - podSelector:
-            matchLabels:
-              app: prometheus
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+      - podSelector:
+          matchLabels:
+            app: prometheus
       ports:
-        - protocol: TCP
-          port: 8080
+      - protocol: TCP
+        port: 8080
 
   egress:
-    # DNS interno do cluster
-    - to:
-        - namespaceSelector: {}
-      ports:
-        - protocol: UDP
-          port: 53
-        - protocol: TCP
-          port: 53
-
-    # Azure SQL, Azure Service Bus, Key Vault, App Insights, HTTPS geral
-    - to:
-        - ipBlock:
-            cidr: 0.0.0.0/0
-      ports:
-        - protocol: TCP
-          port: 1433
-        - protocol: TCP
-          port: 5671
-        - protocol: TCP
-          port: 443
-
-    # Loki, se existir no namespace monitoring
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              name: monitoring
-        - podSelector:
-            matchLabels:
-              app: loki
-      ports:
-        - protocol: TCP
-          port: 3100
+    - {}
