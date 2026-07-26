@@ -19,6 +19,8 @@ public static class DependencyInjection
         services.AddScoped<PaymentRepository>();
 
         var serviceBusSection = configuration.GetSection("ServiceBus");
+        Console.WriteLine(connectionString);
+        Console.WriteLine(serviceBusSection);
         var serviceBusOptions = new ServiceBusOptions
         {
             ConnectionString = serviceBusSection["ConnectionString"] ?? "Endpoint=sb://localhost;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=SAS_KEY_VALUE;UseDevelopmentEmulator=true",

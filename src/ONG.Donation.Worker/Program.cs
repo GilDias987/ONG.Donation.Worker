@@ -32,7 +32,7 @@ var startupConnectionStrings = config.GetSection("ConnectionStrings")
     .ToDictionary(child => child.Key, child => child.Value);
 
 Log.Information("Startup connection strings: {@ConnectionStrings}", startupConnectionStrings);
-Log.Information("RabbitMQ connection string present: {HasRabbitMq}", !string.IsNullOrWhiteSpace(config["RabbitMQ:ConnectionString"] ?? config["RabbitMQ__ConnectionString"]));
+Log.Information("ServiceBus connection string present: {HasRabbitMq}", !string.IsNullOrWhiteSpace(config["ServiceBus:ConnectionString"] ?? config["RabbitMQ__ConnectionString"]));
 
 var builder = Host.CreateDefaultBuilder(args)
     .UseSerilog()
