@@ -97,43 +97,7 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "500m"
-        
-        # Liveness probe
-        livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health || exit 1
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 3
-        
-        # Readiness probe
-        readinessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health/ready || exit 1
-          initialDelaySeconds: 15
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 2
-        
-        # Startup probe
-        startupProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -c
-            - wget --quiet --tries=1 --spider --timeout=5 http://localhost:8080/health/live || exit 1
-          initialDelaySeconds: 0
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 20
-        
+
         # Volume mounts
         volumeMounts:
         - name: keyvault-secrets
