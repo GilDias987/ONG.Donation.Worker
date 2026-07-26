@@ -249,8 +249,8 @@ WORKER_BATCH_SIZE: "20"             # Aumentar de 10
 WORKER_MAX_CONCURRENT_MESSAGES: "20" # Aumentar de 10
 
 # Aumentar replicas
-minReplicas: 3
-maxReplicas: 10
+minReplicas: 1
+maxReplicas: 2
 ```
 
 ### Otimizar resource allocation
