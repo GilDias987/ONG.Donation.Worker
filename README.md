@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/30440755/README.md)
 # ONG.Donation.Worker
 
 Worker service que processa eventos de pagamento de doações em uma plataforma de doações para ONGs. Escuta uma fila do Azure Service Bus, processa pagamentos (simulado), persiste resultados em SQL Server e publica o resultado em uma fila de saída.
